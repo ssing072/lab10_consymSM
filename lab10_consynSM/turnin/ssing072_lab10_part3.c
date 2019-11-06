@@ -14,30 +14,6 @@
 
 #define button (~PINA & 0x04)
 
-void set_PWM(double frequency){
-	static double current_frequency;
-	if(frequency != current_frequency){
-		if(!frequency){ TCCR3B &= 0x08; }
-		else{ TCCR3B |= 0x03; }
-		if(frequency < .954){ OCR3A = 0xFFFF;}
-		else if(frequency > 31250) { OCR3A = 0x0000; }
-		else { OCR3A = (short)(8000000 / (128* frequency)) -1; }
-		TCNT3 = 0;
-		current_frequency = frequency;
-	}
-}
-
-void PWM_on(){
-	TCCR3A = (1 << COM3A0);
-	TCCR3B = (1 << WGM32) | (1 << CS31) | (1 << CS30);
-	set_PWM(0);
-}
-
-void PWM_off(){
-	TCCR3A = 0x00;
-	TCCR3B = 0x00;
-}
-
 volatile unsigned char TimerFlag = 0;
 unsigned long _avr_timer_M = 1;
 unsigned long _avr_timer_cntcurr = 0;
@@ -139,55 +115,91 @@ void BL_threeLed(){
 	}
 }
 
+
+enum speaker{SP_start, speakON, speakOff} SP_state;
+unsigned char speakerSound = 0;
+
+void play_Speaker(){
+	switch(SP_state){
+		case SP_start:
+		SP_state = speakON;
+		break;
+		case speakON:
+		SP_state = speakOff;
+		break;
+		case speakOff:
+		SP_state = speakON;
+		break;
+		
+	}
+	switch(SP_state){
+		case SP_start:
+		break;
+		case speakON:
+		speakerSound = 0x10;
+		break;
+		case speakOff:
+		speakerSound = 0x00;
+		break;
+	}
+}
+
+const unsigned long TL_Period = 300;
+const unsigned long BL_Period = 1000;
+unsigned long SP_period = 1;
 unsigned long i = 0;
 unsigned long j = 0;
+unsigned long k = 0;
 
-enum states {CS_INIT, callBoth} CS_state;
+enum states {CS_INIT, callALL} CS_state;
 void combostates(){
 	switch(CS_state){
 		case CS_INIT:
-		CS_state = callBoth;
+		CS_state = callALL;
 		break;
-		case callBoth:
-		CS_state = callBoth;
+		case callALL:
+		CS_state = callALL;
 		break;
 	}
 	switch(CS_state){
 		case CS_INIT:
 		break;
-		case callBoth:
-		if(i == 150){
+		case callALL:
+		if(i >= 300){
 			BL_threeLed();
 			i = 0;
 		}
 		i++;
-		if(j == 500){
+		if(j >= 1000){
 			TickFct_BlinkLed();
 			j = 0;
 		}
 		j++;
 		if(button){
-			set_PWM(261.63);
+			if(k >= SP_period){
+				play_Speaker();
+				k = 0;
+			}
+			k++;
 		}
-		else{
-			set_PWM(0);
-		}
-		PORTB = (threeLeds | blinkingLED);
+		PORTB = (speakerSound | threeLeds | blinkingLED);
 		break;
 	}
 }
 
+
 int main(void) {
 	DDRA = 0x00; PORTA = 0xFF;
 	DDRB = 0xFF; PORTB = 0x00;
-	TimerSet(2);
+	TimerSet(1);
 	TimerOn();
 	i = 0;
 	j = 0;
+	k = 0;
 	BL_State  = BL_SMStart;
 	TL_State =  start;
 	CS_state = CS_INIT;
-	PWM_on();
+	SP_state = SP_start;
 	while (1) {
 		combostates();
 		while(!TimerFlag){}
